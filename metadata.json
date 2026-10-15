@@ -1,0 +1,6 @@
+{
+  "name": "Android Developer Activator",
+  "description": "Détection automatique et activation du mode développeur et débogage USB pour téléphones Android via USB et suite Electron.",
+  "requestFramePermissions": ["usb"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
