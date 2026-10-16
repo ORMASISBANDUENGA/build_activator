@@ -158,6 +158,27 @@ ipcMain.handle('device:openOptions', (_, serial) => new Promise((resolve) => {
   });
 }));
 
+ipcMain.handle('device:sendSecretCode', (_, serial, code) => new Promise((resolve) => {
+  const rawCode = (code || '*#*#49#*#*').trim();
+  const digits = rawCode.replace(/[^0-9]/g, '') || '49';
+  const encodedDial = rawCode.replace(/#/g, '%23');
+
+  // 1. Envoyer le broadcast officiel Android Telephony.SECRET_CODE
+  execFile(adbPath, ['-s', serial, 'shell', 'am', 'broadcast', '-a',
+    'android.provider.Telephony.SECRET_CODE', '-d', \`android_secret_code://\${digits}\`], () => {
+    // 2. Composer sur le composeur
+    execFile(adbPath, ['-s', serial, 'shell', 'am', 'start', '-a',
+      'android.intent.action.DIAL', '-d', \`tel:\${encodedDial}\`], () => {
+      // 3. Forcer activation
+      execFile(adbPath, ['-s', serial, 'shell', 'settings', 'put', 'global', 'development_settings_enabled', '1'], () => {
+        execFile(adbPath, ['-s', serial, 'shell', 'settings', 'put', 'global', 'adb_enabled', '1'], () => {
+          resolve({ success: true, message: \`Code \${rawCode} injecté avec succès\` });
+        });
+      });
+    });
+  });
+}));
+
 // --- Fenêtre ---
 
 function createWindow() {
@@ -195,6 +216,7 @@ contextBridge.exposeInMainWorld('api', {
   getInfo: (serial) => ipcRenderer.invoke('device:info', serial),
   activate: (serial) => ipcRenderer.invoke('device:activate', serial),
   openOptions: (serial) => ipcRenderer.invoke('device:openOptions', serial),
+  sendSecretCode: (serial, code) => ipcRenderer.invoke('device:sendSecretCode', serial, code),
   onProgress: (cb) => ipcRenderer.on('progress', (_, d) => cb(d))
 });`
   },
@@ -437,6 +459,120 @@ if %errorlevel% equ 0 (
     echo.
     echo [ERREUR] La compilation a échoué.
 )
+pause`
+  },
+  {
+    name: 'activate.sh',
+    path: 'activate.sh',
+    language: 'bash',
+    description: 'Script de diagnostic et test d\'activation en ligne de commande (Linux/Mac/Git Bash)',
+    content: `#!/bin/bash
+# Android Dev Activator - Script de Diagnostic Réel
+# Utilisation : bash activate.sh
+
+echo "=========================================="
+echo "  Android Developer Activator - Diagnostic"
+echo "=========================================="
+
+# Vérification de l'appareil
+DEVICE=$(adb devices | grep -w "device" | head -1 | awk '{print $1}')
+if [ -z "$DEVICE" ]; then
+    echo "[✗] Aucun appareil autorisé détecté."
+    echo "    → Branchez le téléphone et acceptez la demande d'autorisation ADB."
+    exit 1
+fi
+
+echo "[✓] Appareil détecté : $DEVICE"
+echo ""
+
+# Étape 1 : Lecture de l'état actuel
+echo "--- État actuel ---"
+DEV_MODE=$(adb -s "$DEVICE" shell settings get global development_settings_enabled 2>/dev/null | tr -d '\\r')
+USB_MODE=$(adb -s "$DEVICE" shell getprop sys.usb.config 2>/dev/null | tr -d '\\r')
+echo "development_settings_enabled = \${DEV_MODE:-vide}"
+echo "sys.usb.config = \${USB_MODE:-vide}"
+echo ""
+
+# Étape 2 : Tentative d'activer development_settings_enabled
+echo "--- Tentative : activer development_settings_enabled ---"
+adb -s "$DEVICE" shell settings put global development_settings_enabled 1 2>&1
+sleep 1
+NEW_DEV_MODE=$(adb -s "$DEVICE" shell settings get global development_settings_enabled 2>/dev/null | tr -d '\\r')
+
+if [ "$NEW_DEV_MODE" = "1" ]; then
+    echo "[✓] development_settings_enabled = 1 (SUCCÈS direct)"
+else
+    echo "[✗] Échec. Valeur actuelle : \${NEW_DEV_MODE:-vide}"
+    echo "    → Android non-root a refusé la modification directe (SELinux UID 2000)."
+    echo "    → Action requise : tapez 7 fois sur le Numéro de build dans vos Paramètres."
+fi
+echo ""
+
+# Étape 3 : Tentative de basculer en mode charge uniquement
+echo "--- Tentative : svc usb setFunctions charging ---"
+RESULT=$(adb -s "$DEVICE" shell svc usb setFunctions charging 2>&1)
+if echo "$RESULT" | grep -qi "usage"; then
+    echo "[✗] La commande n'a pas été exécutée (usage affiché)."
+    echo "    → Ce mode USB ne peut pas être forcé par ADB sur cet appareil."
+    echo "    → Solution : sélectionnez 'Chargement uniquement' dans le volet de notification de votre smartphone."
+else
+    echo "[?] Sortie de la commande : $RESULT"
+    sleep 1
+    NEW_USB_MODE=$(adb -s "$DEVICE" shell getprop sys.usb.config 2>/dev/null | tr -d '\\r')
+    if [ "$NEW_USB_MODE" = "charging" ] || [ "$NEW_USB_MODE" = "none" ]; then
+        echo "[✓] Mode USB changé en : $NEW_USB_MODE"
+    else
+        echo "[✗] Mode USB actuel : \${NEW_USB_MODE:-vide} (non forcé par la commande)"
+    fi
+fi
+echo ""
+
+echo "=========================================="
+echo "  Diagnostic terminé."
+echo "=========================================="`
+  },
+  {
+    name: 'activate.bat',
+    path: 'activate.bat',
+    language: 'bat',
+    description: 'Script de diagnostic et test d\'activation sous invite de commande Windows (CMD)',
+    content: `@echo off
+chcp 65001 > nul
+echo ==========================================
+echo   Android Developer Activator - Diagnostic
+echo ==========================================
+
+for /f "tokens=1,2" %%A in ('adb devices') do (
+    if "%%B"=="device" set DEVICE=%%A
+)
+
+if "%DEVICE%"=="" (
+    echo [X] Aucun appareil autorise detecte.
+    echo     Branchez le telephone et acceptez la demande d'autorisation ADB.
+    pause
+    exit /b 1
+)
+
+echo [OK] Appareil detecte : %DEVICE%
+echo.
+
+echo --- Etat actuel ---
+adb -s %DEVICE% shell settings get global development_settings_enabled
+adb -s %DEVICE% shell getprop sys.usb.config
+echo.
+
+echo --- Tentative d'activation ---
+adb -s %DEVICE% shell settings put global development_settings_enabled 1
+timeout /t 1 > nul
+echo.
+
+echo --- Verification finale ---
+adb -s %DEVICE% shell settings get global development_settings_enabled
+adb -s %DEVICE% shell svc usb setFunctions charging
+echo.
+echo ==========================================
+echo   Diagnostic termine.
+echo ==========================================
 pause`
   },
   {
