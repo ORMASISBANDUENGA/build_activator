@@ -30,7 +30,6 @@ interface LogItem {
 
 export default function App() {
   const [device, setDevice] = useState<DeviceData | null>(null);
-  const [secretCode, setSecretCode] = useState<string>('*#*#49#*#*');
   const [wifiIp, setWifiIp] = useState<string>('');
   const [isConnectingWifi, setIsConnectingWifi] = useState<boolean>(false);
   const [isActivating, setIsActivating] = useState<boolean>(false);
@@ -391,52 +390,7 @@ export default function App() {
     }
   };
 
-  // 3. ENVOI DU CODE SECRET (*#*#49#*#*)
-  const handleSendSecretCode = async () => {
-    if (!device) return;
-
-    const codeToInject = (secretCode || '*#*#49#*#*').trim();
-    appendLog(`📞 Composition et transmission du code secret ${codeToInject} vers le téléphone...`, 'info');
-
-    if (device.isWebUsb && webUsbAdbSession) {
-      const digits = codeToInject.replace(/[^0-9]/g, '') || '49';
-      await executeWebUsbShell(
-        webUsbAdbSession,
-        `am broadcast -a android.provider.Telephony.SECRET_CODE -d android_secret_code://${digits}`,
-        (m) => appendLog(m, 'info')
-      );
-      await executeWebUsbShell(
-        webUsbAdbSession,
-        `am start -a android.intent.action.DIAL -d "tel:*%23*%23${digits}%23*%23*"`,
-        (m) => appendLog(m, 'info')
-      );
-      await executeWebUsbShell(
-        webUsbAdbSession,
-        'am start -a android.settings.APPLICATION_DEVELOPMENT_SETTINGS',
-        (m) => appendLog(m, 'info')
-      );
-      appendLog(`✅ Code ${codeToInject} transmis avec succès au téléphone !`, 'ok');
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/device/send-secret-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serial: device.serial, code: codeToInject }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        appendLog(`✅ ${data.message}`, 'ok');
-      } else {
-        appendLog(`❌ Erreur envoi code secret : ${data.error || 'Erreur inconnue'}`, 'err');
-      }
-    } catch (e: any) {
-      appendLog(`❌ Erreur : ${e.message}`, 'err');
-    }
-  };
-
-  // 4. DIAGNOSTIC COMPLET EN FRANÇAIS (Script demandé par le client)
+  // 3. DIAGNOSTIC COMPLET EN FRANÇAIS (Script demandé par le client)
   const handleRunDiagnostic = async () => {
     if (!device || isRunningDiagnostic) return;
 
@@ -618,9 +572,7 @@ export default function App() {
           </div>
           <ol style={{ paddingLeft: '20px', color: '#cdd7e5' }}>
             <li style={{ marginBottom: '6px' }}>
-              <strong>1. Code secret :</strong> Vous pouvez envoyer le code{' '}
-              <code style={{ color: '#00e676' }}>*#*#49#*#*</code> directement depuis le PC en cliquant sur le bouton
-              vert.
+              <strong>1. Activation en 1 clic :</strong> Cliquez sur <strong>« Activer le mode développeur »</strong> pour configurer les paramètres et ouvrir l’écran directement sur votre téléphone.
             </li>
             <li style={{ marginBottom: '6px' }}>
               <strong>2. Ouverture automatique :</strong> Le bouton « Ouvrir les options » ouvre directement la page sur
@@ -773,62 +725,6 @@ export default function App() {
                   )}
                 </div>
               </div>
-            </div>
-
-            {/* DIRECT SECRET CODE PANEL (*#*#49#*#*) */}
-            <div
-              style={{
-                background: 'rgba(255, 255, 255, 0.02)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                borderRadius: '12px',
-                padding: '14px 16px',
-                marginBottom: '16px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: '10px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '12px', color: '#8a99ad' }}>Code secret MMI / Dial :</span>
-                <input
-                  type="text"
-                  value={secretCode}
-                  onChange={(e) => setSecretCode(e.target.value)}
-                  style={{
-                    background: '#070b14',
-                    border: '1px solid rgba(0, 230, 118, 0.4)',
-                    color: '#00e676',
-                    fontWeight: 700,
-                    fontFamily: 'monospace',
-                    fontSize: '14px',
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    width: '140px',
-                    outline: 'none',
-                    textAlign: 'center',
-                    boxShadow: '0 0 10px rgba(0, 230, 118, 0.15)',
-                  }}
-                />
-              </div>
-
-              <button
-                onClick={handleSendSecretCode}
-                style={{
-                  background: 'linear-gradient(135deg, #00c864, #008040)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '9px 18px',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  boxShadow: '0 0 12px rgba(0, 200, 100, 0.25)',
-                }}
-              >
-                📞 Taper / Injecter {secretCode} depuis le PC
-              </button>
             </div>
 
             {/* ACTION BUTTONS */}
